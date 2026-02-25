@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+@theme {
+  @keyframes stretch {
+    0% {
+      stroke-dasharray: 1, 150;
+      stroke-dashoffset: 0;
+    }
+
+    50% {
+      stroke-dasharray: 90, 150;
+      stroke-dashoffset: -35;
+    }
+
+    100% {
+      stroke-dasharray: 1, 150;
+      stroke-dashoffset: -124;
+    }
+  }
+}
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer base {
+  body {
+    @apply m-0 p-0 w-screen h-screen overflow-hidden text-white bg-black;
+  }
+}
+
+@layer components {
+
+  .custom-slider {
+    --slider-fill: var(--color-white);
+    --slider-track-width: 4px;
+    --slider-thumb-bg: var(--color-white);
+    --slider-thumb-size: 12px;
+    --slider-radius: 9999px;
+
+    &.vertical {
+      width: var(--slider-track-width);
+    }
+
+    &:not(.vertical) {
+      height: var(--slider-track-width);
+    }
+
+    @apply appearance-none bg-transparent cursor-pointer m-0 p-0 border-none outline-none disabled:pointer-events-none;
+  }
+
+  .custom-slider.vertical {
+    writing-mode: vertical-lr;
+    direction: rtl;
+  }
+
+  .custom-slider::-webkit-slider-runnable-track {
+    @apply w-full h-full;
+    background: var(--slider-fill);
+    border-radius: var(--slider-radius);
+  }
+
+  .custom-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: var(--slider-thumb-size);
+    height: var(--slider-thumb-size);
+    background: var(--slider-thumb-bg);
+    border-radius: var(--slider-radius);
+
+    margin-top: calc((var(--slider-track-width) - var(--slider-thumb-size)) / 2);
+    @apply opacity-0 shadow-[0_0_4px] shadow-black/50 transition-opacity duration-100;
+  }
+
+  .custom-slider.vertical::-webkit-slider-thumb {
+    margin-top: 0;
+    margin-left: calc((var(--slider-track-width) - var(--slider-thumb-size)) / 2);
+  }
+
+  .custom-slider:hover::-webkit-slider-thumb {
+    @apply opacity-100;
+  }
+}
