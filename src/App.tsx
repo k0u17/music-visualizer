@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useRef } from 'react';
-import { useAtom, useStore } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom, useStore } from 'jotai';
 import clsx from 'clsx';
 import {
   isLoadingAtom,
@@ -10,14 +10,16 @@ import {
   volumeAtom,
   currentTimeAtom,
   durationAtom,
-  isScrubberBeingDraggedAtom, isActuallyPlayingAtom
+  isScrubberBeingDraggedAtom,
+  isActuallyPlayingAtom, audioFileAtom, canvasWidthAtom, canvasHeightAtom
 } from './atoms';
 import {
   type Gradient,
   gradientToCSS,
   scaleGradient,
   repeatGradient,
-  shiftGradient, normalizeGradient
+  shiftGradient,
+  normalizeGradient
 } from './util/gradient-util';
 
 import FolderOpenIcon from './assets/folder-open.svg?react';
@@ -29,7 +31,7 @@ import VolumeLowIcon from './assets/volume-low.svg?react';
 import VolumeIcon from './assets/volume.svg?react';
 
 function LoadingScreen() {
-  const [isLoading] = useAtom(isLoadingAtom);
+  const isLoading = useAtomValue(isLoadingAtom);
   return (
     <div className={clsx(
       "absolute top-0 left-0 w-full h-full z-50 flex flex-col items-center justify-center",
@@ -104,16 +106,41 @@ function Button(
 }
 
 function FileSelector() {
-  const [isLoading] = useAtom(isLoadingAtom);
+  const isLoading = useAtomValue(isLoadingAtom);
+  const setAudioFile = useSetAtom(audioFileAtom);
+  const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <Button disabled={isLoading}>
-      <FolderOpenIcon />
-    </Button>
+    <div>
+      <input
+        type="file"
+        accept="audio/*"
+        ref={input => {
+          inputRef.current = input;
+          if (!input) return;
+
+          // onChange works like the 'input' event, so we can't use that for files
+          input.addEventListener('change', () => {
+            const file = input.files![0];
+            if (file) {
+              setAudioFile(file);
+              input.value = '';
+            }
+          })
+        }}
+        style={{ display: 'none' }}
+      />
+      <Button
+        disabled={isLoading}
+        onClick={() => inputRef.current?.click()}
+      >
+        <FolderOpenIcon />
+      </Button>
+    </div>
   );
 }
 
 function PlaybackButton() {
-  const [hasLoaded] = useAtom(hasLoadedAtom)
+  const hasLoaded = useAtomValue(hasLoadedAtom)
   const [isPlaying, setPlaying] = useAtom(isPlayingAtom);
   return (
     <Button
@@ -126,7 +153,7 @@ function PlaybackButton() {
 }
 
 function LoopButton() {
-  const [hasLoaded] = useAtom(hasLoadedAtom);
+  const hasLoaded = useAtomValue(hasLoadedAtom);
   const [isLooping, setLooping] = useAtom(isLoopingAtom);
   return (
     <Button
@@ -154,20 +181,20 @@ function Time({ seconds }: TimeProps) {
 }
 
 function CurrentTime() {
-  const [currentTime] = useAtom(currentTimeAtom);
+  const currentTime = useAtomValue(currentTimeAtom);
   return <Time seconds={currentTime} />;
 }
 
 function Duration() {
-  const [duration] = useAtom(durationAtom);
+  const duration = useAtomValue(durationAtom);
   return <Time seconds={duration} />;
 }
 
 function Scrubber() {
-  const [hasLoaded] = useAtom(hasLoadedAtom);
-  const [duration] = useAtom(durationAtom);
-  const [, setScrubberBeingDragged] = useAtom(isScrubberBeingDraggedAtom);
-  const [isPlaying] = useAtom(isPlayingAtom);
+  const hasLoaded = useAtomValue(hasLoadedAtom);
+  const duration = useAtomValue(durationAtom);
+  const setScrubberBeingDragged = useSetAtom(isScrubberBeingDraggedAtom);
+  const isPlaying = useAtomValue(isPlayingAtom);
   const [currentTime, setCurrentTime] = useAtom(currentTimeAtom);
 
   const store = useStore();
@@ -269,7 +296,7 @@ function Scrubber() {
 
 function VolumeController() {
   const step = 0.01;
-  const [hasLoaded] = useAtom(hasLoadedAtom);
+  const hasLoaded = useAtomValue(hasLoadedAtom);
   const [volume, setVolume] = useAtom(volumeAtom);
   const prevVolumeRef = useRef(step);
   return (
@@ -359,23 +386,76 @@ function BottomBar() {
   );
 }
 
-function Visualizer() {
+function DropZone({ children }: { children: React.ReactNode }) {
+  const setAudioFile = useSetAtom(audioFileAtom);
   return (
     <div
       ref={container => {
         if (!container) return;
-        // TODO
+        container.addEventListener('dragover', e => {
+          if (!e.dataTransfer) return;
+          if ([...e.dataTransfer.items].some(item => item.kind === 'file' && item.type.startsWith('audio/')))
+            e.dataTransfer.dropEffect = 'copy';
+          else
+            e.dataTransfer.dropEffect = 'none';
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        container.addEventListener('drop', e => {
+          if (!e.dataTransfer) return;
+          const audioFile = [...e.dataTransfer.items]
+            .filter(item => item.kind === 'file' && item.type.startsWith('audio/'))
+            .map(item => item.getAsFile())
+            .find(file => file != null);
+          if (!audioFile) return;
+          setAudioFile(audioFile);
+          e.preventDefault();
+          e.stopPropagation();
+        });
       }}
-      className="grow flex items-center justify-center bg-black"
-    />
+      className="grow flex min-w-0 min-h-0 items-center justify-center bg-black"
+    >
+      {children}
+    </div>
   );
+}
+
+function Visualizer() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const setWidth = useSetAtom(canvasWidthAtom);
+  const setHeight = useSetAtom(canvasHeightAtom);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setWidth(width);
+        setHeight(height);
+        canvas.width = width;
+        canvas.height = height;
+      }
+    });
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  });
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="w-full h-full min-w-0 min-h-0"
+    />
+  )
 }
 
 export default function App() {
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden">
       <LoadingScreen />
-      <Visualizer />
+      <DropZone>
+        <Visualizer />
+      </DropZone>
       <BottomBar />
     </div>
   );

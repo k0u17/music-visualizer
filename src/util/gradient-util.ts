@@ -1,10 +1,12 @@
+/** Represents a color stop in a gradient */
 export type GradientStop = [color: string, position: number];
 
-// Both are assumed to be sorted by position
+/** Represents a gradient */
 export type Gradient = [GradientStop, ...GradientStop[]];
+/** Represents an un-normalized gradient in which the positions of some color stops are missing and to be interpolated */
 export type GradientLike = [string | GradientStop, ...(string | GradientStop)[]] | string; // gradient or single color
 
-/* Compute the missing positions of the color stops supposing them to be evenly distributed between the fixed positions */
+/** Interpolate the missing positions of the color stops supposing them to be evenly distributed between the fixed positions */
 export function normalizeGradient(color: GradientLike): Gradient {
   if (typeof color === 'string') return [[color, 0] as GradientStop];
   const n = color.length;
@@ -40,6 +42,7 @@ export function normalizeGradient(color: GradientLike): Gradient {
   }) as Gradient;
 }
 
+/** Deep-copy a gradient */
 export function cloneGradient(gradient: Gradient) {
   const clone: GradientStop[] = [];
   for (const [color, position] of gradient) {
@@ -48,6 +51,7 @@ export function cloneGradient(gradient: Gradient) {
   return clone as Gradient;
 }
 
+/** Scale gradient positions by a factor (scale). Color stops with overflowed positions will be clipped off if scale > 1 */
 export function scaleGradient(gradient: Gradient, scale: number) {
   const scaledGradient = scale > 1 ? clipGradient(gradient, 0, 1/scale) : cloneGradient(gradient);
   for (const stop of scaledGradient) {
@@ -56,6 +60,11 @@ export function scaleGradient(gradient: Gradient, scale: number) {
   return scaledGradient as Gradient;
 }
 
+
+/**
+ * Perform binary search on a sorted array of items based on a comparator function,
+ * returning whether the item was found and its index
+ */
 function binarySearchBy<T>(array: T[], comparator: (lhs: T) => number): [found: boolean, insertIdx: number] {
   if (array.length === 0) return [false, 0];
   const orderingFirst = comparator(array[0]!);
@@ -73,9 +82,9 @@ function binarySearchBy<T>(array: T[], comparator: (lhs: T) => number): [found: 
   return [false, high];
 }
 
-/* 
-Get the color at a specific position in the gradient, and the insert index for the position in the gradient
-*/
+/**
+ * Get the color at a specific position in the gradient, and the insert index for the position in the gradient
+ */
 export function gradientColorAt(
   gradient: Gradient,
   pos: number,
@@ -95,6 +104,10 @@ export function gradientColorAt(
   ];
 }
 
+/**
+ * Clip a gradient to a specific range of positions, inserting new color stops at the boundaries if missing.
+ * The new color stops will be interpolated from the existing color stops.
+ */
 export function clipGradient(
   gradient: Gradient,
   start: number,
@@ -113,6 +126,10 @@ export function clipGradient(
   return newGradient as Gradient;
 }
 
+/**
+ * Shift a gradient by a certain offset,
+ * wrapping around if necessary and inserting new color stops at the boundaries if missing.
+ */
 export function shiftGradient(
   gradient: Gradient,
   offset: number,
@@ -123,8 +140,8 @@ export function shiftGradient(
   const firstPos = gradient[0][1];
   const lastPos = gradient.at(-1)![1];
 
-  // basically, whether the first/last color stop will not cross the boundary after getting shifted
-  // , but if they are already at either end, we don't need to insert new color stops at the boundary positions respectively
+  // basically, whether the first/last color stop will not cross the boundary after getting shifted,
+  // but if they are already at either end, we don't need to insert new color stops at the boundary positions respectively
   const shouldInsertFirst = firstPos !== 0 && firstPos + signedOffset > 0;
   const shouldInsertLast = lastPos !== 1 && lastPos + signedOffset < 1;
   if (shouldInsertFirst || shouldInsertLast)
@@ -148,6 +165,10 @@ export function shiftGradient(
   return shifted as Gradient
 }
 
+/**
+ * Repeat a gradient while the last color stop's position is less than 1,
+ * virtually simulating the behavior of CSS `repeating-linear-gradient` function.
+ */
 export function repeatGradient(
   gradient: Gradient,
   interpolationMethod: string = 'in oklab'
@@ -185,12 +206,27 @@ export function repeatGradient(
 }
 
 interface ToCSSOptions {
+  /**
+   * The direction of the gradient. Refers to the CSS `linear-gradient` function.
+   */
   direction?: string,
+  /**
+   * The interpolation method to use for the gradient. Refers to the CSS `linear-gradient` function.
+   */
   interpolationMethod?: string,
+  /**
+   * Whether to use `linear-gradient` or `repeating-linear-gradient`.
+   */
   repeating?: boolean,
-  unit?: string
+  /**
+   * The maximum value for the gradient positions. Defaults to '100%'.
+   */
+  max?: string
 }
 
+/**
+ * Convert a gradient to a CSS linear-gradient string.
+ */
 export function gradientToCSS(
   gradient: Gradient,
   options: ToCSSOptions = {}
@@ -199,7 +235,7 @@ export function gradientToCSS(
   const direction = options.direction ?? 'to bottom';
   const interpolationMethod = options.interpolationMethod ?? 'in oklab';
   const func = options.repeating ? 'repeating-linear-gradient' : 'linear-gradient';
-  const unit = options.unit ?? '100%';
-  const stops = gradient.map(([color, pos]) => `${color} calc(${pos} * ${unit})`);
+  const max = options.max ?? '100%';
+  const stops = gradient.map(([color, pos]) => `${color} calc(${pos} * ${max})`);
   return `${func}(${direction} ${interpolationMethod}, ${stops.join(', ')})`;
 }

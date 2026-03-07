@@ -7,7 +7,11 @@ import svgr from 'vite-plugin-svgr'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    react(),
+    react({
+      babel: {
+        plugins: ['babel-plugin-react-compiler']
+      }
+    }),
     wasm(),
     topLevelAwait(),
     svgr()
