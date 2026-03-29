@@ -6,13 +6,23 @@ export type Gradient = [GradientStop, ...GradientStop[]];
 /** Represents an un-normalized gradient in which the positions of some color stops are missing and to be interpolated */
 export type GradientLike = [string | GradientStop, ...(string | GradientStop)[]] | string; // gradient or single color
 
+/**
+ * Assert a GradientStop[] as a Gradient, throwing an error if the array is empty.
+ * The array should be disposed after being built into a Gradient.
+ */
+export function stopsIntoGradient(stops: GradientStop[]) {
+  if (stops.length === 0) throw new Error('Gradient must have at least one color stop');
+  stops.forEach(Object.freeze);
+  return Object.freeze(stops) as Gradient;
+}
+
 /** Interpolate the missing positions of the color stops supposing them to be evenly distributed between the fixed positions */
 export function normalizeGradient(color: GradientLike): Gradient {
   if (typeof color === 'string') return [[color, 0] as GradientStop];
   const n = color.length;
 
   const prevFixedPosIdx = color.reduce((arr, stop, i) => {
-    arr.push(typeof stop !== 'string' ? i : arr[i - 1] ?? 0)
+    arr.push(typeof stop !== 'string' ? i : arr[i - 1] ?? 0);
     return arr;
   }, [] as number[]);
   const nextFixedPosIdx = new Array<number>(n);
@@ -26,9 +36,9 @@ export function normalizeGradient(color: GradientLike): Gradient {
     if (index <= 0) return pos ?? 0;
     if (index >= n - 1) return pos ?? 1;
     return pos;
-  }
+  };
 
-  return Array.from({ length: n }, (_, i): GradientStop => {
+  return stopsIntoGradient(Array.from({ length: n }, (_, i): GradientStop => {
     const stop = color[i]!;
     const col = typeof stop === 'string' ? stop : stop[0];
     const pos = getFixedPos(i);
@@ -36,30 +46,19 @@ export function normalizeGradient(color: GradientLike): Gradient {
     const prev = prevFixedPosIdx[i]!;
     const next = nextFixedPosIdx[i]!;
     const interval = next - prev;
-    const base = getFixedPos(prev)!
+    const base = getFixedPos(prev)!;
     const room = getFixedPos(next)! - base;
     return [col, (i - prev) / interval * room + base];
-  }) as Gradient;
-}
-
-/** Deep-copy a gradient */
-export function cloneGradient(gradient: Gradient) {
-  const clone: GradientStop[] = [];
-  for (const [color, position] of gradient) {
-    clone.push([color, position]);
-  }
-  return clone as Gradient;
+  }));
 }
 
 /** Scale gradient positions by a factor (scale). Color stops with overflowed positions will be clipped off if scale > 1 */
 export function scaleGradient(gradient: Gradient, scale: number) {
-  const scaledGradient = scale > 1 ? clipGradient(gradient, 0, 1/scale) : cloneGradient(gradient);
-  for (const stop of scaledGradient) {
-    stop[1] *= scale;
-  }
-  return scaledGradient as Gradient;
+  const clippedGradient = scale > 1 ? clipGradient(gradient, 0, 1 / scale) : gradient;
+  return stopsIntoGradient(
+    clippedGradient.map(([color, position]) => [color, position * scale])
+  );
 }
-
 
 /**
  * Perform binary search on a sorted array of items based on a comparator function,
@@ -92,8 +91,8 @@ export function gradientColorAt(
 ): [color: string, found: boolean, insertIdx: number] {
   if (gradient.length === 1) return [gradient[0][0], pos === gradient[0][1], pos > gradient[0][1] ? 1 : 0];
   const [found, index] = binarySearchBy(gradient, stop => stop[1] - pos);
-  if (found || index === 0) return [gradient[index]![0], found, index]
-  if (index === gradient.length) return [gradient[index - 1]![0], false, index]
+  if (found || index === 0) return [gradient[index]![0], found, index];
+  if (index === gradient.length) return [gradient[index - 1]![0], false, index];
   const [leftColor, leftPos] = gradient[index - 1]!;
   const [rightColor, rightPos] = gradient[index]!;
   const ratio = (pos - leftPos) / (rightPos - leftPos);
@@ -123,7 +122,7 @@ export function clipGradient(
     newGradient.push([color, pos]);
   }
   newGradient.push([endColor, end]);
-  return newGradient as Gradient;
+  return stopsIntoGradient(newGradient);
 }
 
 /**
@@ -148,7 +147,7 @@ export function shiftGradient(
     gradient = [
       ...(shouldInsertFirst ? [[gradient[0][0], 0]] : []),
       ...gradient,
-      ...(shouldInsertFirst ? [[gradient.at(-1)![0], 1]] : [])
+      ...(shouldInsertLast ? [[gradient.at(-1)![0], 1]] : [])
     ] as Gradient;
   const shifted: GradientStop[] = [];
   const [boundaryColor, found, idx] = gradientColorAt(gradient, 1 - offset, interpolationMethod);
@@ -162,7 +161,7 @@ export function shiftGradient(
     shifted.push([color, pos + offset]);
   }
   shifted.push([boundaryColor, 1]);
-  return shifted as Gradient
+  return stopsIntoGradient(shifted);
 }
 
 /**
@@ -202,7 +201,7 @@ export function repeatGradient(
   const remaining = 1 % period;
   appendGradientStops(repeatedGradient , ...clipGradient(gradient, 0, remaining, interpolationMethod));
 
-  return repeatedGradient as Gradient;
+  return stopsIntoGradient(repeatedGradient);
 }
 
 interface ToCSSOptions {

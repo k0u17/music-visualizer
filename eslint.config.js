@@ -21,7 +21,8 @@ export default defineConfig([
     },
     rules: {
       "no-unused-vars": "warn",
-      "indent": ["warn", 2]
+      "indent": ["warn", 2],
+      "semi": ["warn", "always"]
     }
   },
 ])
