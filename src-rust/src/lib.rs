@@ -1,3 +1,5 @@
+mod visualizer;
+
 use wasm_bindgen::prelude::*;
 
 

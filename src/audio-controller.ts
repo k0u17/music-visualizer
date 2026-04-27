@@ -7,6 +7,8 @@ const CAPACITY = 1 << 16;
 export interface SampleRingBuffer {
   readonly channelCount: number;
   readonly writePos: number;
+  readonly capacity: number;
+  readPos: number;
   buffer(channel: number): Float32Array | undefined;
 }
 
@@ -14,6 +16,7 @@ class SampleRingBufferImpl implements SampleRingBuffer {
 
   readonly buffers: Float32Array[];
   readonly writePosBuffer: Int32Array;
+  readPos: number = 0;
 
   constructor(readonly channelCount: number) {
     const rawBuffer = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT + Float32Array.BYTES_PER_ELEMENT * CAPACITY * this.channelCount);
@@ -28,9 +31,15 @@ class SampleRingBufferImpl implements SampleRingBuffer {
     return Atomics.load(this.writePosBuffer, 0);
   }
 
+  get capacity() {
+    return CAPACITY;
+  }
+
   buffer(channel: number) {
     return this.buffers[channel];
   }
+
+
 }
 
 export class AudioController {

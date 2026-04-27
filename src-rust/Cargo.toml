@@ -7,6 +7,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
+macros = { path = "macros" }
 wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4.64"
 console_error_panic_hook = "0.1.7"
@@ -17,3 +18,4 @@ web-sys = { version = "0.3.91", features = [
 ]}
 encase = "0.12.0"
 wgpu = { version = "28.0.0", features = ["webgpu"] }
+bytemuck = "1.25.0"
