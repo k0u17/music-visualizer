@@ -17,5 +17,5 @@ web-sys = { version = "0.3.91", features = [
     "HtmlCanvasElement"
 ]}
 encase = "0.12.0"
-wgpu = { version = "28.0.0", features = ["webgpu"] }
+wgpu = { version = "29.0.3", features = ["webgpu"] }
 bytemuck = "1.25.0"

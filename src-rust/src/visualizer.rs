@@ -5,14 +5,20 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
 
-const FFT_SIZE: u16 = 2048;
+const FFT_SIZE_LOG: u16 = 10;
+const FFT_SIZE: u16 = 1 << FFT_SIZE_LOG;
 const FFT_WINDOW_STRIDE: u16 = 128;
 const MAX_ANALYSIS_PER_FRAME: u16 = 16;
 const FREQUENCIES: u16 = FFT_SIZE / 2;
 const BINS: u16 = 20;
 
 struct Resources {
-    position_buffers: [wgpu::Buffer; 2],
+    samples_left: wgpu::Buffer,
+    samples_right: wgpu::Buffer,
+    hann_window: wgpu::Buffer,
+    twiddle_factors: wgpu::Buffer,
+    fft_buffers: [wgpu::Buffer; 2],
+    position_buffer: wgpu::Buffer,
     velocity_buffers: [wgpu::Buffer; 2],
     bins_buffer: wgpu::Buffer,
     vertices: wgpu::Buffer,
@@ -20,19 +26,72 @@ struct Resources {
 }
 
 impl Resources {
+    fn init_sample_buffers(device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer) {
+         let buffer_desc = |name: &'static str| wgpu::BufferDescriptor {
+             label: Some(name),
+             size: ((FFT_SIZE - FFT_WINDOW_STRIDE) + FFT_WINDOW_STRIDE*MAX_ANALYSIS_PER_FRAME) as u64,
+             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+             mapped_at_creation: false
+         };
+        (
+             device.create_buffer(&buffer_desc("Samples Left")),
+             device.create_buffer(&buffer_desc("Samples Right"))
+        )
+    }
 
-    fn init_simulation_resources(device: &wgpu::Device) -> ([wgpu::Buffer; 2], [wgpu::Buffer; 2]) {
+    fn init_hann_window(device: &wgpu::Device) -> wgpu::Buffer {
+        let values: [f32; FFT_SIZE as usize] = array::from_fn(|i|
+            0.5*(1.0 - f32::cos(std::f32::consts::TAU*(i as f32)/(FFT_SIZE as f32)))
+        );
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Hann Window"),
+            contents: bytemuck::cast_slice(&values),
+            usage: wgpu::BufferUsages::STORAGE,
+        })
+    }
+
+    fn init_twiddle_factors(device: &wgpu::Device) -> wgpu::Buffer {
+        let angles: [f32; FFT_SIZE as usize] = array::from_fn(|i| {
+            -std::f32::consts::TAU * (i as f32) / (FFT_SIZE as f32)
+        });
+        let values: [f32; FFT_SIZE as usize * 2] = array::from_fn(|i| {
+            let angle = angles[i >> 1];
+            if i & 1 == 0 { f32::cos(angle) } else { f32::sin(angle) }
+        });
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Twiddle Factors"),
+            contents: bytemuck::cast_slice(&values),
+            usage: wgpu::BufferUsages::STORAGE,
+        })
+    }
+
+    fn init_fft_buffers(device: &wgpu::Device) -> [wgpu::Buffer; 2] {
         let buffer_desc = wgpu::BufferDescriptor {
+            label: Some("FFT Buffer"),
+            size: FFT_SIZE as u64 * size_of::<f32>() as u64 * 2,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        };
+        [
+            device.create_buffer(&buffer_desc),
+            device.create_buffer(&buffer_desc)
+        ]
+    }
+
+    fn init_simulation_resources(device: &wgpu::Device) -> (wgpu::Buffer, [wgpu::Buffer; 2]) {
+        let buffer_desc = |name: &str| wgpu::BufferDescriptor {
             label: None,
             size: FREQUENCIES as u64 * size_of::<f32>() as u64,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         };
-        let [position_buffers, velocity_buffers] = array::from_fn::<_, 2, _>(|_| [
-            device.create_buffer(&buffer_desc),
-            device.create_buffer(&buffer_desc)
-        ]);
-        (position_buffers, velocity_buffers)
+        (
+            device.create_buffer(&buffer_desc("Position Buffer")),
+            [
+                device.create_buffer(&buffer_desc("Velocity Buffer")),
+                device.create_buffer(&buffer_desc("Velocity Buffer"))
+            ]
+        )
     }
 
     fn init_vertex_resources(device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer) {
@@ -57,7 +116,11 @@ impl Resources {
     }
 
     pub fn new(device: &wgpu::Device) -> Self {
-        let (position_buffers, velocity_buffers) = Self::init_simulation_resources(device);
+        let (samples_left, samples_right) = Self::init_sample_buffers(device);
+        let hann_window = Self::init_hann_window(device);
+        let twiddle_factors = Self::init_twiddle_factors(device);
+        let fft_buffers = Self::init_fft_buffers(device);
+        let (position_buffer, velocity_buffers) = Self::init_simulation_resources(device);
         let (vertices, indices) = Self::init_vertex_resources(device);
         let bins_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
@@ -66,7 +129,12 @@ impl Resources {
             mapped_at_creation: false,
         });
         Self {
-            position_buffers,
+            samples_left,
+            samples_right,
+            hann_window,
+            twiddle_factors,
+            fft_buffers,
+            position_buffer,
             velocity_buffers,
             bins_buffer,
             vertices,
@@ -74,8 +142,8 @@ impl Resources {
         }
     }
 
-    pub fn position_buffers(&self) -> &[wgpu::Buffer; 2] {
-        &self.position_buffers
+    pub fn position_buffer(&self) -> &wgpu::Buffer {
+        &self.position_buffer
     }
 
     pub fn velocity_buffers(&self) -> &[wgpu::Buffer; 2] {
@@ -320,7 +388,7 @@ impl Renderer {
     #[js_error(display)]
     #[wasm_bindgen]
     pub async fn create(canvas: HtmlCanvasElement) -> Result<Self, Box<dyn Error>> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::BROWSER_WEBGPU,
             ..Default::default()
         });
